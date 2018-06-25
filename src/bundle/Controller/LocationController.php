@@ -10,11 +10,15 @@ namespace EzSystems\EzPlatformAdminUiBundle\Controller;
 
 use eZ\Publish\API\Repository\ContentService;
 use eZ\Publish\API\Repository\ContentTypeService;
+use eZ\Publish\API\Repository\Exceptions\NotFoundException;
 use eZ\Publish\API\Repository\LocationService;
+use eZ\Publish\API\Repository\PermissionResolver;
 use eZ\Publish\API\Repository\TrashService;
 use eZ\Publish\API\Repository\Values\Content\ContentInfo;
+use eZ\Publish\API\Repository\Values\Content\Location;
 use eZ\Publish\API\Repository\Values\Content\LocationUpdateStruct;
 use eZ\Publish\Core\Base\Exceptions\InvalidArgumentException;
+use eZ\Publish\Core\MVC\Symfony\Security\Authorization\Attribute;
 use EzSystems\EzPlatformAdminUi\Form\Data\Content\Location\ContentLocationAddData;
 use EzSystems\EzPlatformAdminUi\Form\Data\Content\Location\ContentLocationRemoveData;
 use EzSystems\EzPlatformAdminUi\Form\Data\Location\LocationCopyData;
@@ -29,13 +33,12 @@ use EzSystems\EzPlatformAdminUi\Form\SubmitHandler;
 use EzSystems\EzPlatformAdminUi\Notification\NotificationHandlerInterface;
 use EzSystems\EzPlatformAdminUi\Tab\LocationView\DetailsTab;
 use EzSystems\EzPlatformAdminUi\Tab\LocationView\LocationsTab;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\OptionsResolver\Exception\InvalidOptionsException;
 use Symfony\Component\Translation\TranslatorInterface;
 use eZ\Publish\API\Repository\Exceptions\UnauthorizedException as APIRepositoryUnauthorizedException;
-use Symfony\Component\Translation\Exception\InvalidArgumentException as TranslationInvalidArgumentException;
 
 class LocationController extends Controller
 {
@@ -63,6 +66,9 @@ class LocationController extends Controller
     /** @var \EzSystems\EzPlatformAdminUi\Form\SubmitHandler */
     private $submitHandler;
 
+    /** @var \eZ\Publish\API\Repository\PermissionResolver */
+    private $permissionResolver;
+
     /**
      * @param \EzSystems\EzPlatformAdminUi\Notification\NotificationHandlerInterface $notificationHandler
      * @param \Symfony\Component\Translation\TranslatorInterface $translator
@@ -72,6 +78,7 @@ class LocationController extends Controller
      * @param \eZ\Publish\API\Repository\TrashService $trashService
      * @param \EzSystems\EzPlatformAdminUi\Form\Factory\FormFactory $formFactory
      * @param \EzSystems\EzPlatformAdminUi\Form\SubmitHandler $submitHandler
+     * @param \eZ\Publish\API\Repository\PermissionResolver $permissionResolver
      */
     public function __construct(
         NotificationHandlerInterface $notificationHandler,
@@ -81,7 +88,8 @@ class LocationController extends Controller
         ContentService $contentService,
         TrashService $trashService,
         FormFactory $formFactory,
-        SubmitHandler $submitHandler
+        SubmitHandler $submitHandler,
+        PermissionResolver $permissionResolver
     ) {
         $this->notificationHandler = $notificationHandler;
         $this->translator = $translator;
@@ -91,14 +99,13 @@ class LocationController extends Controller
         $this->trashService = $trashService;
         $this->formFactory = $formFactory;
         $this->submitHandler = $submitHandler;
+        $this->permissionResolver = $permissionResolver;
     }
 
     /**
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
-     *
-     * @throws InvalidArgumentException
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function moveAction(Request $request): Response
     {
@@ -152,11 +159,9 @@ class LocationController extends Controller
     }
 
     /**
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
-     *
-     * @throws InvalidArgumentException
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function copyAction(Request $request): Response
     {
@@ -216,11 +221,9 @@ class LocationController extends Controller
     }
 
     /**
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
-     *
-     * @throws InvalidArgumentException
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function copySubtreeAction(Request $request): Response
     {
@@ -265,9 +268,9 @@ class LocationController extends Controller
     }
 
     /**
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function swapAction(Request $request): Response
     {
@@ -320,9 +323,9 @@ class LocationController extends Controller
     }
 
     /**
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function trashAction(Request $request): Response
     {
@@ -362,9 +365,9 @@ class LocationController extends Controller
     /**
      * Handles removing locations assigned to content item based on submitted form.
      *
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function removeAction(Request $request): Response
     {
@@ -373,7 +376,7 @@ class LocationController extends Controller
         );
         $form->handleRequest($request);
 
-        /** @var ContentInfo $contentInfo */
+        /** @var \eZ\Publish\API\Repository\Values\Content\ContentInfo $contentInfo */
         $contentInfo = $form->getData()->getContentInfo();
 
         if ($form->isSubmitted()) {
@@ -414,9 +417,9 @@ class LocationController extends Controller
     /**
      * Handles assigning new location to the content item based on submitted form.
      *
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function addAction(Request $request): Response
     {
@@ -465,14 +468,9 @@ class LocationController extends Controller
     /**
      * Handles toggling visibility location of a content item based on submitted form.
      *
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
-     *
-     * @throws \InvalidArgumentException
-     * @throws TranslationInvalidArgumentException
-     * @throws APIRepositoryUnauthorizedException
-     * @throws InvalidOptionsException
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function updateVisibilityAction(Request $request): Response
     {
@@ -485,6 +483,9 @@ class LocationController extends Controller
         if ($form->isSubmitted() && $form->isValid()) {
             $result = $this->submitHandler->handle($form, function (LocationUpdateVisibilityData $data) use ($contentInfo) {
                 $location = $data->getLocation();
+
+                $this->canUserHideLocation($location);
+
                 $hidden = $data->getHidden();
 
                 if ($hidden) {
@@ -526,11 +527,46 @@ class LocationController extends Controller
     }
 
     /**
+     * Handles changing visibility location of a content item based on submitted form.
+     *
+     * @param int $locationId
+     * @param int $hidden
+     *
+     * @return \Symfony\Component\HttpFoundation\JsonResponse
+     */
+    public function updateVisibilityAjaxAction(int $locationId, int $hidden): JsonResponse
+    {
+        $response = new JsonResponse();
+
+        try {
+            $location = $this->locationService->loadLocation($locationId);
+        } catch (NotFoundException $e) {
+            return new JsonResponse(['error' => $e->getMessage()], Response::HTTP_NOT_FOUND);
+        } catch (APIRepositoryUnauthorizedException $e) {
+            return new JsonResponse(['error' => $e->getMessage()], Response::HTTP_UNAUTHORIZED);
+        }
+
+        try {
+            if ($hidden) {
+                $this->locationService->hideLocation($location);
+            } else {
+                $this->locationService->unhideLocation($location);
+            }
+        } catch (APIRepositoryUnauthorizedException $exception) {
+            $response->setData([
+                'error' => $exception->getMessage(),
+            ])->setStatusCode(Response::HTTP_UNAUTHORIZED);
+        }
+
+        return $response;
+    }
+
+    /**
      * Handles update existing location.
      *
-     * @param Request $request
+     * @param \Symfony\Component\HttpFoundation\Request $request
      *
-     * @return Response
+     * @return \Symfony\Component\HttpFoundation\Response
      */
     public function updateAction(Request $request): Response
     {
@@ -570,5 +606,25 @@ class LocationController extends Controller
             'locationId' => $location->getContentInfo()->mainLocationId,
             '_fragment' => DetailsTab::URI_FRAGMENT,
         ]));
+    }
+
+    /**
+     * @param \eZ\Publish\API\Repository\Values\Content\Location $location
+     *
+     * @throws \eZ\Publish\API\Repository\Exceptions\BadStateException
+     * @throws \eZ\Publish\API\Repository\Exceptions\InvalidArgumentException
+     */
+    private function canUserHideLocation(Location $location)
+    {
+        $canHideLocation = $this->permissionResolver->canUser(
+            'content', 'hide', $location->getContentInfo(), [$location]
+        );
+
+        if (!$canHideLocation) {
+            $exception = $this->createAccessDeniedException();
+            $exception->setAttributes(new Attribute('content', 'hide'));
+
+            throw $exception;
+        }
     }
 }

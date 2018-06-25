@@ -479,6 +479,16 @@ ezplatform.location.update_visibility:
     defaults:
         _controller: 'EzPlatformAdminUiBundle:Location:updateVisibility'
 
+ezplatform.location.hide:
+    path: /location/hide/{locationId}/{hidden}
+    methods: ['GET']
+    options:
+        expose: true
+    defaults:
+        _controller: 'EzPlatformAdminUiBundle:Location:updateVisibilityAjax'
+    requirements:
+        locationId: \d+
+
 ezplatform.location.update_bookmark:
     path: /location/update-bookmark
     methods: ['POST']
